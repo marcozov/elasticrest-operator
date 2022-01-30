@@ -1,0 +1,6 @@
+apiVersion: elasticsearch.elasticrest.io/v1alpha1
+kind: ILMPolicy
+metadata:
+  name: ilmpolicy-sample
+spec:
+  # Add fields here

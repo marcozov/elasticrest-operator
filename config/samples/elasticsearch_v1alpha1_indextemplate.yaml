@@ -1,0 +1,6 @@
+apiVersion: elasticsearch.elasticrest.io/v1alpha1
+kind: IndexTemplate
+metadata:
+  name: indextemplate-sample
+spec:
+  # Add fields here
