@@ -2,5 +2,7 @@ apiVersion: elasticsearch.elasticrest.io/v1alpha1
 kind: IndexTemplate
 metadata:
   name: indextemplate-sample
+  namespace: elasticsearch
 spec:
-  # Add fields here
+  elasticsearchCluster: quickstart
+  body: "test"

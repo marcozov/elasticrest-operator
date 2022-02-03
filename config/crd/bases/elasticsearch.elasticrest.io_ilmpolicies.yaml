@@ -36,9 +36,12 @@ spec:
           spec:
             description: ILMPolicySpec defines the desired state of ILMPolicy
             properties:
-              foo:
-                description: Foo is an example field of ILMPolicy. Edit ilmpolicy_types.go
-                  to remove/update
+              body:
+                description: Body is the ILM Policy body
+                type: string
+              elasticsearchCluster:
+                description: ElasticsearchCluster is the target Elasticsearch cluster
+                  for this ILM Policy
                 type: string
             type: object
           status:

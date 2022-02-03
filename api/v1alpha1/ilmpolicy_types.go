@@ -25,11 +25,12 @@ import (
 
 // ILMPolicySpec defines the desired state of ILMPolicy
 type ILMPolicySpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of ILMPolicy. Edit ilmpolicy_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// Body is the ILM Policy body
+	Body string `json:"body,omitempty"`
+	// ElasticsearchCluster is the target Elasticsearch cluster for this ILM Policy
+	ElasticsearchCluster string `json:"elasticsearchCluster,omitempty"`
 }
 
 // ILMPolicyStatus defines the observed state of ILMPolicy

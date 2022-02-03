@@ -28,8 +28,10 @@ type IndexTemplateSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of IndexTemplate. Edit indextemplate_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// Body is the Index Template body
+	Body string `json:"body,omitempty"`
+	// ElasticsearchCluster is the target Elasticsearch cluster for this index template
+	ElasticsearchCluster string `json:"elasticsearchCluster,omitempty"`
 }
 
 // IndexTemplateStatus defines the observed state of IndexTemplate

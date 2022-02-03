@@ -2,5 +2,34 @@ apiVersion: elasticsearch.elasticrest.io/v1alpha1
 kind: ILMPolicy
 metadata:
   name: ilmpolicy-sample
+  namespace: elasticsearch
 spec:
-  # Add fields here
+  elasticsearchCluster: quickstart
+  body: |
+    {
+      "policy": {
+        "_meta": {
+          "description": "used for nginx log",
+          "project": {
+            "name": "myProject",
+            "department": "myDepartment"
+          }
+        },
+        "phases": {
+          "warm": {
+            "min_age": "9d",
+            "actions": {
+              "forcemerge": {
+                "max_num_segments": 1
+              }
+            }
+          },
+          "delete": {
+            "min_age": "24d",
+            "actions": {
+              "delete": {}
+            }
+          }
+        }
+      }
+    }

@@ -36,9 +36,12 @@ spec:
           spec:
             description: IndexTemplateSpec defines the desired state of IndexTemplate
             properties:
-              foo:
-                description: Foo is an example field of IndexTemplate. Edit indextemplate_types.go
-                  to remove/update
+              body:
+                description: Body is the Index Template body
+                type: string
+              elasticsearchCluster:
+                description: ElasticsearchCluster is the target Elasticsearch cluster
+                  for this index template
                 type: string
             type: object
           status:
