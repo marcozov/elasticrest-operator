@@ -111,6 +111,8 @@ func (r *ILMPolicyReconciler) getElasticsearchAuthorizationHeader(ctx context.Co
 func (r *ILMPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
+	log.Info("Entered reconcile loop")
+
 	policy := &elasticsearchv1alpha1.ILMPolicy{}
 	err := r.Get(ctx, req.NamespacedName, policy)
 	if err != nil {
@@ -142,13 +144,28 @@ func (r *ILMPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if !containsString(policy.GetFinalizers(), myFinalizerName) {
 			controllerutil.AddFinalizer(policy, myFinalizerName)
 			if err != r.Update(ctx, policy) {
-				return ctrl.Result{}, nil
+				// return ctrl.Result{}, nil
+				return ctrl.Result{}, err
 			}
 		}
 	} else {
 		if containsString(policy.GetFinalizers(), myFinalizerName) {
-			if err := r.deleteExternalResources(ctx, httpClient, policy, elasticsearchClient); err != nil {
-				return ctrl.Result{}, err
+			if status, err := r.deleteExternalResources(ctx, httpClient, policy, elasticsearchClient); err != nil {
+				log.Info(fmt.Sprintf("current status (before getting the error on the deletion of resources): %+v", policy.Status))
+				log.Info(fmt.Sprintf("returned status (from the deletion): %+v", status))
+				log.Error(err, "Error while deleting external resources")
+
+				if status.ResponseCode == -1 && policy.Status.ResponseCode == -1 {
+					log.Info("Trying to remove an ILMPolicy that could not be created. The ILMPolicy resource can be removed because it doesn't exist on the backend.")
+					// return ctrl.Result{}, nil
+				} else {
+					if err := r.updateStatus(ctx, policy, status, req); err != nil {
+						log.Error(err, fmt.Sprintf("Could not update ILMPolicy status: %+v", status))
+						return ctrl.Result{}, err
+					}
+
+					return ctrl.Result{}, err
+				}
 			}
 
 			controllerutil.RemoveFinalizer(policy, myFinalizerName)
@@ -160,44 +177,31 @@ func (r *ILMPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	if err := r.addExternalResources(ctx, httpClient, policy, elasticsearchClient); err != nil {
+	if status, err := r.addExternalResources(ctx, httpClient, policy, elasticsearchClient, req); err != nil {
+		if err := r.updateStatus(ctx, policy, status, req); err != nil {
+			log.Error(err, fmt.Sprintf("Could not update ILMPolicy status: %+v", status))
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{}, err
 	}
-	// getting the desired state
-	// elasticsearchILMPolicyEndpoint := fmt.Sprintf("https://%s:9200/_ilm/policy", elasticsearchClient.ElasticsearchEndpoint)
-
-	// log.Info(fmt.Sprintf("Elasticsearch ILM Policy endpoint: %s", elasticsearchILMPolicyEndpoint))
-	// log.Info(fmt.Sprintf("Authorization Header: %s", elasticsearchClient.AuthorizationHeader))
-
-	// Create/update the ILM Policy. It's always a PUT request. No need to distinguish between adding a new ILM policy or updating an existing one.
-	// log.Info("Creating/Updating the ILM policy")
-	// policyBody := policy.Spec.Body
-
-	// check JSON for http methods https://riptutorial.com/go/example/27703/put-request-of-json-object
-	// input validation
-	// policyRequest, err := http.NewRequest("PUT", fmt.Sprintf("%s/%s", elasticsearchILMPolicyEndpoint, req.Name), bytes.NewBufferString(policyBody))
-	// if err != nil {
-	// 	log.Error(err, "Error while creating the ILM policy create/update HTTP request")
-	// 	return ctrl.Result{}, nil
-	// }
-
-	// policyRequest.Header.Set("Content-Type", "application/json")
-	// policyRequest.Header.Add("Authorization", fmt.Sprintf("Basic %s", elasticsearchClient.AuthorizationHeader))
-
-	// resp, err := httpClient.Do(policyRequest)
-	// log.Info(fmt.Sprintf("Policy creation response: %+v", resp))
-	// if err != nil {
-	// 	log.Error(err, "Error while sending the HTTP request to create/update the policy")
-	// 	return ctrl.Result{}, nil
-	// }
-
-	// if resp.StatusCode < 200 && resp.StatusCode >= 300 {
-	// 	log.Info(fmt.Sprintf("non-200 return code: %d, status: %+v", resp.StatusCode, resp.Status))
-	// }
 
 	log.Info("End of the reconcile loop")
 
 	return ctrl.Result{}, nil
+}
+
+func (r *ILMPolicyReconciler) updateStatus(ctx context.Context, policy *elasticsearchv1alpha1.ILMPolicy, status *elasticsearchv1alpha1.ILMPolicyStatus, req ctrl.Request) error {
+	log := log.FromContext(ctx)
+
+	log.Info(fmt.Sprintf("Updating ILMPolicy resource status with STATUS: %+v", status))
+	policy.Status = *status
+	if err := r.Status().Update(ctx, policy); err != nil {
+		// log.Error(err, fmt.Sprintf("Failed to update the ILMPolicy status. Desired state: %+v", policy.Status))
+		log.Error(err, fmt.Sprintf("Failed to update the ILMPolicy status. Desired state: %+v", status))
+		return err
+	}
+
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -207,9 +211,15 @@ func (r *ILMPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *ILMPolicyReconciler) addExternalResources(ctx context.Context, httpClient *http.Client, policy *elasticsearchv1alpha1.ILMPolicy, client *ElasticsearchClusterClient) error {
+func (r *ILMPolicyReconciler) addExternalResources(ctx context.Context, httpClient *http.Client, policy *elasticsearchv1alpha1.ILMPolicy, client *ElasticsearchClusterClient, req ctrl.Request) (*elasticsearchv1alpha1.ILMPolicyStatus, error) {
 	// add the external resources associated with the ILM Policy
 	log := log.FromContext(ctx)
+	status := &elasticsearchv1alpha1.ILMPolicyStatus{
+		Stat:         "added external resource",
+		Description:  "random text (for now)",
+		Operation:    "CREATE",
+		ResponseCode: -1, // response code -1 means that the request failed
+	}
 
 	elasticsearchILMPolicyEndpoint := fmt.Sprintf("https://%s:9200/_ilm/policy", client.ElasticsearchEndpoint)
 	log.Info(fmt.Sprintf("Elasticsearch ILM Policy endpoint: %s", elasticsearchILMPolicyEndpoint))
@@ -223,8 +233,15 @@ func (r *ILMPolicyReconciler) addExternalResources(ctx context.Context, httpClie
 	// input validation
 	policyRequest, err := http.NewRequest("PUT", fmt.Sprintf("%s/%s", elasticsearchILMPolicyEndpoint, policy.Name), bytes.NewBufferString(policyBody))
 	if err != nil {
+		status.Description = err.Error()
 		log.Error(err, "Error while creating the ILM policy create/update HTTP request")
-		return err
+
+		// if err := r.updateStatus(ctx, policy, status, req); err != nil {
+		// 	log.Error(err, fmt.Sprintf("Could not update ILMPolicy status"))
+		// 	return err
+		// }
+
+		return status, err
 	}
 
 	policyRequest.Header.Set("Content-Type", "application/json")
@@ -233,26 +250,55 @@ func (r *ILMPolicyReconciler) addExternalResources(ctx context.Context, httpClie
 	resp, err := httpClient.Do(policyRequest)
 	log.Info(fmt.Sprintf("Policy creation response: %+v", resp))
 	if err != nil {
+		status.Description = err.Error()
 		log.Error(err, "Error while sending the HTTP request to create/update the policy")
-		return err
+
+		// if err := r.updateStatus(ctx, policy, status, req); err != nil {
+		// 	log.Error(err, fmt.Sprintf("Could not update ILMPolicy status"))
+		// 	return err
+		// }
+
+		return status, err
 	}
+
+	status.ResponseCode = resp.StatusCode
 
 	if resp.StatusCode < 200 && resp.StatusCode >= 300 {
 		err := errors.New(fmt.Sprintf("Non-200 return code: %d, status: %+v", resp.StatusCode, resp.Status))
+		status.Description = err.Error()
 		log.Error(err, "Unexpected return code.")
-		return err
+
+		// if err := r.updateStatus(ctx, policy, status, req); err != nil {
+		// 	log.Error(err, fmt.Sprintf("Could not update ILMPolicy status"))
+		// 	return err
+		// }
+
+		return status, err
 	}
 
-	return nil
+	// policy.Status.Stat = "policy added"
+	// if err := r.updateStatus(ctx, policy, status, req); err != nil {
+	// 	log.Error(err, fmt.Sprintf("Could not update ILMPolicy status"))
+	// 	return err
+	// }
+
+	return status, nil
 }
 
-func (r *ILMPolicyReconciler) deleteExternalResources(ctx context.Context, httpClient *http.Client, policy *elasticsearchv1alpha1.ILMPolicy, client *ElasticsearchClusterClient) error {
+func (r *ILMPolicyReconciler) deleteExternalResources(ctx context.Context, httpClient *http.Client, policy *elasticsearchv1alpha1.ILMPolicy, client *ElasticsearchClusterClient) (*elasticsearchv1alpha1.ILMPolicyStatus, error) {
 	//
 	// delete any external resources associated with the ILM Policy
 	//
 	// Ensure that delete implementation is idempotent and safe to invoke
 	// multiple times for same object.
 	log := log.FromContext(ctx)
+	status := &elasticsearchv1alpha1.ILMPolicyStatus{
+		Stat:         "added external resource",
+		Description:  "random text (for now)",
+		Operation:    "DELETE",
+		ResponseCode: -1, // response code -1 means that the request failed
+	}
+
 	log.Info(fmt.Sprintf("Deleting external resources %+v", policy))
 
 	elasticsearchILMPolicyEndpoint := fmt.Sprintf("https://%s:9200/_ilm/policy", client.ElasticsearchEndpoint)
@@ -260,7 +306,8 @@ func (r *ILMPolicyReconciler) deleteExternalResources(ctx context.Context, httpC
 	deleteRequest, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s", elasticsearchILMPolicyEndpoint, policy.Name), nil)
 	if err != nil {
 		log.Error(err, "Error while creating the ILM policy HTTP deletion request")
-		return err
+		status.Description = err.Error()
+		return status, err
 	}
 
 	deleteRequest.Header.Add("Authorization", fmt.Sprintf("Basic %s", client.AuthorizationHeader))
@@ -268,16 +315,19 @@ func (r *ILMPolicyReconciler) deleteExternalResources(ctx context.Context, httpC
 	deleteResponse, err := httpClient.Do(deleteRequest)
 	if err != nil {
 		log.Error(err, "Error while sending the ILM policy HTTP deletion request")
-		return err
+		status.Description = err.Error()
+		return status, err
 	}
 	log.Info(fmt.Sprintf("delete response: %+v", deleteResponse))
+	status.ResponseCode = deleteResponse.StatusCode
 
 	if deleteResponse.StatusCode < 200 && deleteResponse.StatusCode >= 300 {
-		log.Info(fmt.Sprintf("non-200 return code: %d", deleteResponse.StatusCode))
-		log.Info(fmt.Sprintf("status: %+v", deleteResponse.Status))
+		err := errors.New(fmt.Sprintf("Non-200 return code: %d, status: %+v", deleteResponse.StatusCode, deleteResponse.Status))
+		status.Description = err.Error()
+		log.Error(err, "Unexpected return code.")
 	}
 
-	return nil
+	return status, nil
 }
 
 // Helper functions to check and remove string from a slice of strings.

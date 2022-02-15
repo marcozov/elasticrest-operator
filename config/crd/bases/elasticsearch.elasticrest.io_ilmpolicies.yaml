@@ -46,6 +46,20 @@ spec:
             type: object
           status:
             description: ILMPolicyStatus defines the observed state of ILMPolicy
+            properties:
+              description:
+                description: Detailed description of the performed operation. It often
+                  contains messages from the backend
+                type: string
+              operation:
+                description: The type of operation performed by the API call
+                type: string
+              responseCode:
+                description: Response code of the rest API call
+                type: integer
+              stat:
+                description: Status in text
+                type: string
             type: object
         type: object
     served: true

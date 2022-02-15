@@ -37,6 +37,18 @@ type ILMPolicySpec struct {
 type ILMPolicyStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+
+	// Status in text
+	Stat string `json:"stat,omitempty"`
+
+	// Detailed description of the performed operation. It often contains messages from the backend
+	Description string `json:"description,omitempty"`
+
+	// Response code of the rest API call
+	ResponseCode int `json:"responseCode,omitempty"`
+
+	// The type of operation performed by the API call
+	Operation string `json:"operation,omitempty"`
 }
 
 //+kubebuilder:object:root=true
