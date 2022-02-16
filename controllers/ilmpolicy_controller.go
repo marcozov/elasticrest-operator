@@ -144,21 +144,24 @@ func (r *ILMPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if !containsString(policy.GetFinalizers(), myFinalizerName) {
 			controllerutil.AddFinalizer(policy, myFinalizerName)
 			if err != r.Update(ctx, policy) {
-				// return ctrl.Result{}, nil
 				return ctrl.Result{}, err
 			}
 		}
 	} else {
 		if containsString(policy.GetFinalizers(), myFinalizerName) {
+			// try to delete the resource on the Elasticsearch backend
 			if status, err := r.deleteExternalResources(ctx, httpClient, policy, elasticsearchClient); err != nil {
 				log.Info(fmt.Sprintf("current status (before getting the error on the deletion of resources): %+v", policy.Status))
 				log.Info(fmt.Sprintf("returned status (from the deletion): %+v", status))
 				log.Error(err, "Error while deleting external resources")
 
+				// if the deletion of the resource (on the elasticsearch backend) fails, then proceed and remove the finalizer
+				// More cases may be added here (e.g., the response code is 404)
 				if status.ResponseCode == -1 && policy.Status.ResponseCode == -1 {
 					log.Info("Trying to remove an ILMPolicy that could not be created. The ILMPolicy resource can be removed because it doesn't exist on the backend.")
-					// return ctrl.Result{}, nil
 				} else {
+					// we may decide to not delete the resource on kubernetes if the Elasticsearch backend can't be properly cleaned up.
+					// This behaviour may be changed.
 					if err := r.updateStatus(ctx, policy, status, req); err != nil {
 						log.Error(err, fmt.Sprintf("Could not update ILMPolicy status: %+v", status))
 						return ctrl.Result{}, err
@@ -177,11 +180,14 @@ func (r *ILMPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	if status, err := r.addExternalResources(ctx, httpClient, policy, elasticsearchClient, req); err != nil {
-		if err := r.updateStatus(ctx, policy, status, req); err != nil {
-			log.Error(err, fmt.Sprintf("Could not update ILMPolicy status: %+v", status))
-			return ctrl.Result{}, err
-		}
+	status, err := r.addExternalResources(ctx, httpClient, policy, elasticsearchClient, req)
+	if err := r.updateStatus(ctx, policy, status, req); err != nil {
+		log.Error(err, fmt.Sprintf("Could not update ILMPolicy status: %+v", status))
+		return ctrl.Result{}, err
+	}
+
+	if err != nil {
+		log.Error(err, "Error when adding the external resource.")
 		return ctrl.Result{}, err
 	}
 
@@ -196,7 +202,6 @@ func (r *ILMPolicyReconciler) updateStatus(ctx context.Context, policy *elastics
 	log.Info(fmt.Sprintf("Updating ILMPolicy resource status with STATUS: %+v", status))
 	policy.Status = *status
 	if err := r.Status().Update(ctx, policy); err != nil {
-		// log.Error(err, fmt.Sprintf("Failed to update the ILMPolicy status. Desired state: %+v", policy.Status))
 		log.Error(err, fmt.Sprintf("Failed to update the ILMPolicy status. Desired state: %+v", status))
 		return err
 	}
@@ -215,9 +220,8 @@ func (r *ILMPolicyReconciler) addExternalResources(ctx context.Context, httpClie
 	// add the external resources associated with the ILM Policy
 	log := log.FromContext(ctx)
 	status := &elasticsearchv1alpha1.ILMPolicyStatus{
-		Stat:         "added external resource",
-		Description:  "random text (for now)",
-		Operation:    "CREATE",
+		Description:  "",
+		Method:       "PUT",
 		ResponseCode: -1, // response code -1 means that the request failed
 	}
 
@@ -236,11 +240,6 @@ func (r *ILMPolicyReconciler) addExternalResources(ctx context.Context, httpClie
 		status.Description = err.Error()
 		log.Error(err, "Error while creating the ILM policy create/update HTTP request")
 
-		// if err := r.updateStatus(ctx, policy, status, req); err != nil {
-		// 	log.Error(err, fmt.Sprintf("Could not update ILMPolicy status"))
-		// 	return err
-		// }
-
 		return status, err
 	}
 
@@ -253,11 +252,6 @@ func (r *ILMPolicyReconciler) addExternalResources(ctx context.Context, httpClie
 		status.Description = err.Error()
 		log.Error(err, "Error while sending the HTTP request to create/update the policy")
 
-		// if err := r.updateStatus(ctx, policy, status, req); err != nil {
-		// 	log.Error(err, fmt.Sprintf("Could not update ILMPolicy status"))
-		// 	return err
-		// }
-
 		return status, err
 	}
 
@@ -268,19 +262,10 @@ func (r *ILMPolicyReconciler) addExternalResources(ctx context.Context, httpClie
 		status.Description = err.Error()
 		log.Error(err, "Unexpected return code.")
 
-		// if err := r.updateStatus(ctx, policy, status, req); err != nil {
-		// 	log.Error(err, fmt.Sprintf("Could not update ILMPolicy status"))
-		// 	return err
-		// }
-
 		return status, err
 	}
 
-	// policy.Status.Stat = "policy added"
-	// if err := r.updateStatus(ctx, policy, status, req); err != nil {
-	// 	log.Error(err, fmt.Sprintf("Could not update ILMPolicy status"))
-	// 	return err
-	// }
+	status.Description = resp.Status
 
 	return status, nil
 }
@@ -293,9 +278,8 @@ func (r *ILMPolicyReconciler) deleteExternalResources(ctx context.Context, httpC
 	// multiple times for same object.
 	log := log.FromContext(ctx)
 	status := &elasticsearchv1alpha1.ILMPolicyStatus{
-		Stat:         "added external resource",
-		Description:  "random text (for now)",
-		Operation:    "DELETE",
+		Description:  "",
+		Method:       "DELETE",
 		ResponseCode: -1, // response code -1 means that the request failed
 	}
 
