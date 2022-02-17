@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -69,7 +70,7 @@ func (r *ILMPolicyReconciler) initElasticsearchClusterClient(ctx context.Context
 }
 
 func (r *ILMPolicyReconciler) getElasticsearchEndpoint(policy *elasticsearchv1alpha1.ILMPolicy) (string, error) {
-	elasticsearchService := fmt.Sprintf("%s-es-http.%s.svc.cluster.local", policy.Spec.ElasticsearchCluster, policy.Namespace)
+	elasticsearchService := fmt.Sprintf("%s-es-http.%s.svc", policy.Spec.ElasticsearchCluster, policy.Namespace)
 
 	return elasticsearchService, nil
 }
@@ -85,7 +86,11 @@ func (r *ILMPolicyReconciler) getElasticsearchAuthorizationHeader(ctx context.Co
 		Namespace: policy.Namespace,
 		Name:      elasticsearchCredentialsName,
 	}
-	r.Get(ctx, secretKey, secret)
+	err := r.Get(ctx, secretKey, secret)
+	if err != nil {
+		log.Error(err, "Error whiile retrieving the elasticsearch credentials.")
+		return "", err
+	}
 
 	elasticUserPassword := secret.Data["elastic"]
 	log.Info(fmt.Sprintf("elastic user password: %s", elasticUserPassword))
@@ -93,6 +98,33 @@ func (r *ILMPolicyReconciler) getElasticsearchAuthorizationHeader(ctx context.Co
 	elasticUserPasswordEncoded := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", "elastic", elasticUserPassword)))
 
 	return elasticUserPasswordEncoded, nil
+}
+
+func (r *ILMPolicyReconciler) getElasticsearchCertificateAuthority(ctx context.Context, policy *elasticsearchv1alpha1.ILMPolicy) (*x509.CertPool, error) {
+	log := log.FromContext(ctx)
+	elasticsearchInternalCaName := fmt.Sprintf("%s-es-http-ca-internal", policy.Spec.ElasticsearchCluster)
+
+	secret := &corev1.Secret{}
+	secretKey := client.ObjectKey{
+		Namespace: policy.Namespace,
+		Name:      elasticsearchInternalCaName,
+	}
+	err := r.Get(ctx, secretKey, secret)
+	if err != nil {
+		log.Error(err, "Error whiile retrieving the elasticsearch certificate authority certificate.")
+		return nil, err
+	}
+
+	elasticsearchCaCert := secret.Data["tls.crt"]
+	caCertPool := x509.NewCertPool()
+
+	if ok := caCertPool.AppendCertsFromPEM(elasticsearchCaCert); !ok {
+		err := fmt.Errorf("Could not create a CertPool from the elasticsearch certificate authority certificate.")
+		log.Error(err, "Error")
+		return nil, err
+	}
+
+	return caCertPool, nil
 }
 
 //+kubebuilder:rbac:groups=elasticsearch.elasticrest.io,resources=ilmpolicies,verbs=get;list;watch;create;update;patch;delete
@@ -124,9 +156,15 @@ func (r *ILMPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, ignoreNotFound
 	}
 
+	certPool, err := r.getElasticsearchCertificateAuthority(ctx, policy)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	httpClient := &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			// TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: &tls.Config{RootCAs: certPool},
 		},
 	}
 
@@ -310,6 +348,8 @@ func (r *ILMPolicyReconciler) deleteExternalResources(ctx context.Context, httpC
 		status.Description = err.Error()
 		log.Error(err, "Unexpected return code.")
 	}
+
+	status.Description = deleteResponse.Status
 
 	return status, nil
 }

@@ -14,8 +14,15 @@ curl -H "Content-Type: application/json" -X PUT -k -u 'admin-user:password' http
 curl -X DELETE -k -u 'admin-user:password' https://quickstart-es-http:9200/_ilm/policy/test_policy
 
 curl -k -u 'admin-user:password' https://quickstart-es-http:9200/_ilm/policy | jq
-curl -k -u 'admin-user:password' https://quickstart-es-http:9200/_ilm/policy/ilmpolicy-sample | jq
+curl -k -u 'admin-user:password' https://quickstart-es-http.elasticsearch:9200/_ilm/policy/ilmpolicy-sample | jq
 curl -k -u 'admin-user:password' https://quickstart-es-default:9200/_ilm/policy/ilmpolicy-sample | jq
+
+apt-get update && apt-get install curl vim telnet openssl jq -y
+openssl crl2pkcs7 -nocrl -certfile ca.pem | openssl pkcs7 -print_certs -text -noout
+openssl crl2pkcs7 -nocrl -certfile CHAINED.pem | openssl pkcs7 -print_certs -text -noout
+
+openssl s_client -connect quickstart-es-http.elasticsearch:9200
+openssl s_client -connect quickstart-es-default.elasticsearch:9200
 
 # the domain is my.domain . crd --> memcacheds.elasticsearch.my.domain
 # CRD for ECK: https://github.com/elastic/cloud-on-k8s/blob/master/deploy/eck-operator/charts/eck-operator-crds/templates/all-crds.yaml
