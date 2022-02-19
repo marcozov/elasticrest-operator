@@ -9,7 +9,7 @@ spec:
     {
       "policy": {
         "_meta": {
-          "description": "used for nginx log",
+          "description": "used for another random test",
           "project": {
             "name": "myProject",
             "department": "myDepartment"

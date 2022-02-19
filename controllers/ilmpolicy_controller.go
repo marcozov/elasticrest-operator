@@ -32,7 +32,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/log"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	elasticsearchv1alpha1 "elasticrest-operator/api/v1alpha1"
 )
@@ -49,16 +49,13 @@ type ElasticsearchClusterClient struct {
 }
 
 func (r *ILMPolicyReconciler) initElasticsearchClusterClient(ctx context.Context, policy *elasticsearchv1alpha1.ILMPolicy) (*ElasticsearchClusterClient, error) {
-	log := log.FromContext(ctx)
 	endpoint, err := r.getElasticsearchEndpoint(policy)
 	if err != nil {
-		log.Error(err, "Error while getting the elasticsearch endpoint")
-		return nil, err
+		return nil, fmt.Errorf("Error while building the Elasticsearch endpoint: %w", err)
 	}
 	authorizationHeader, err := r.getElasticsearchAuthorizationHeader(ctx, policy)
 	if err != nil {
-		log.Error(err, "Error while getting the authorization endpoint")
-		return nil, err
+		return nil, fmt.Errorf("Error while building the authorization header: %w", err)
 	}
 
 	client := &ElasticsearchClusterClient{
@@ -76,32 +73,26 @@ func (r *ILMPolicyReconciler) getElasticsearchEndpoint(policy *elasticsearchv1al
 }
 
 func (r *ILMPolicyReconciler) getElasticsearchAuthorizationHeader(ctx context.Context, policy *elasticsearchv1alpha1.ILMPolicy) (string, error) {
-	log := log.FromContext(ctx)
 	// The operator needs to be able to read and list secrets.
 	elasticsearchCredentialsName := fmt.Sprintf("%s-es-elastic-user", policy.Spec.ElasticsearchCluster)
 
 	secret := &corev1.Secret{}
-	log.Info(fmt.Sprintf("before fetching secret: %s", secret))
 	secretKey := client.ObjectKey{
 		Namespace: policy.Namespace,
 		Name:      elasticsearchCredentialsName,
 	}
 	err := r.Get(ctx, secretKey, secret)
 	if err != nil {
-		log.Error(err, "Error whiile retrieving the elasticsearch credentials.")
 		return "", err
 	}
 
 	elasticUserPassword := secret.Data["elastic"]
-	log.Info(fmt.Sprintf("elastic user password: %s", elasticUserPassword))
-
 	elasticUserPasswordEncoded := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", "elastic", elasticUserPassword)))
 
 	return elasticUserPasswordEncoded, nil
 }
 
 func (r *ILMPolicyReconciler) getElasticsearchCertificateAuthority(ctx context.Context, policy *elasticsearchv1alpha1.ILMPolicy) (*x509.CertPool, error) {
-	log := log.FromContext(ctx)
 	elasticsearchInternalCaName := fmt.Sprintf("%s-es-http-ca-internal", policy.Spec.ElasticsearchCluster)
 
 	secret := &corev1.Secret{}
@@ -111,7 +102,6 @@ func (r *ILMPolicyReconciler) getElasticsearchCertificateAuthority(ctx context.C
 	}
 	err := r.Get(ctx, secretKey, secret)
 	if err != nil {
-		log.Error(err, "Error while retrieving the elasticsearch certificate authority certificate.")
 		return nil, err
 	}
 
@@ -120,7 +110,6 @@ func (r *ILMPolicyReconciler) getElasticsearchCertificateAuthority(ctx context.C
 
 	if ok := caCertPool.AppendCertsFromPEM(elasticsearchCaCert); !ok {
 		err := fmt.Errorf("Could not create a CertPool from the elasticsearch certificate authority certificate.")
-		log.Error(err, "Error")
 		return nil, err
 	}
 
@@ -141,9 +130,14 @@ func (r *ILMPolicyReconciler) getElasticsearchCertificateAuthority(ctx context.C
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.10.0/pkg/reconcile
 func (r *ILMPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := log.FromContext(ctx)
+	log := logf.FromContext(ctx)
+	// log := logf.Log.WithName("test")
+	// log.V()
+	// opts := zap.Options{Level: 1}
+	// opts.
 
 	log.Info("Entered reconcile loop")
+	defer log.Info("Exit from reconcile loop")
 
 	policy := &elasticsearchv1alpha1.ILMPolicy{}
 	err := r.Get(ctx, req.NamespacedName, policy)
@@ -155,6 +149,8 @@ func (r *ILMPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 		return ctrl.Result{}, ignoreNotFound
 	}
+	log.Info(fmt.Sprintf("ILM Policy %s/%s retrieved correctly", policy.Name, policy.Namespace))
+	log.V(1).Info(fmt.Sprintf("Retrieved ILM Policy, %#v", policy))
 
 	certPool, err := r.getElasticsearchCertificateAuthority(ctx, policy)
 	if err != nil {
@@ -175,14 +171,13 @@ func (r *ILMPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			TLSClientConfig: &tls.Config{RootCAs: certPool},
 		},
 	}
+	log.V(1).Info("Elasticsearch truststore retrieved and configured for the HTTP client")
 
 	elasticsearchClient, err := r.initElasticsearchClusterClient(ctx, policy)
 	if err != nil {
 		log.Error(err, "Error while retrieving the elasticsearch client")
 		return ctrl.Result{}, err
 	}
-
-	log.Info(fmt.Sprintf("Retrieved ILM Policy, %#v", policy))
 
 	myFinalizerName := "elasticsearch.elasticrest.io/finalizer"
 	// using finalizers https://book.kubebuilder.io/reference/using-finalizers.html
@@ -196,9 +191,10 @@ func (r *ILMPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	} else {
 		if containsString(policy.GetFinalizers(), myFinalizerName) {
 			// try to delete the resource on the Elasticsearch backend
+			// log.Info(fmt.Sprintf("Deleting the ILM policy: %#v", policy))
+			log.Info(fmt.Sprintf("Deleting the ILM policy %s", fmt.Sprintf("%s/%s", policy.Name, policy.Namespace)))
+			log.V(1).Info(fmt.Sprintf("Deleting the ILM policy %s: %#v", fmt.Sprintf("%s/%s", policy.Name, policy.Namespace), policy))
 			if status, err := r.deleteExternalResources(ctx, httpClient, policy, elasticsearchClient); err != nil {
-				log.Info(fmt.Sprintf("current status (before getting the error on the deletion of resources): %#v", policy.Status))
-				log.Info(fmt.Sprintf("returned status (from the deletion): %#v", status))
 				log.Error(err, "Error while deleting external resources")
 
 				// if the deletion of the resource (on the elasticsearch backend) fails, then proceed and remove the finalizer
@@ -226,6 +222,9 @@ func (r *ILMPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
+	// log.Info(fmt.Sprintf("Creating/Updating the ILM policy: %#v", policy))
+	log.Info(fmt.Sprintf("Creating/Updating the ILM policy %s", fmt.Sprintf("%s/%s", policy.Name, policy.Namespace)))
+	log.V(1).Info(fmt.Sprintf("Creating/Updating the ILM policy %s: %#v", fmt.Sprintf("%s/%s", policy.Name, policy.Namespace), policy))
 	status, err := r.addExternalResources(ctx, httpClient, policy, elasticsearchClient, req)
 	if err := r.updateStatus(ctx, policy, status, req); err != nil {
 		log.Error(err, fmt.Sprintf("Could not update ILMPolicy status: %#v", status))
@@ -243,7 +242,7 @@ func (r *ILMPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 }
 
 func (r *ILMPolicyReconciler) updateStatus(ctx context.Context, policy *elasticsearchv1alpha1.ILMPolicy, status *elasticsearchv1alpha1.ILMPolicyStatus, req ctrl.Request) error {
-	log := log.FromContext(ctx)
+	log := logf.FromContext(ctx)
 
 	log.Info(fmt.Sprintf("Updating ILMPolicy resource status with STATUS: %#v", status))
 	policy.Status = *status
@@ -264,7 +263,8 @@ func (r *ILMPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *ILMPolicyReconciler) addExternalResources(ctx context.Context, httpClient *http.Client, policy *elasticsearchv1alpha1.ILMPolicy, client *ElasticsearchClusterClient, req ctrl.Request) (*elasticsearchv1alpha1.ILMPolicyStatus, error) {
 	// Add the external resources associated with the ILM Policy
-	log := log.FromContext(ctx)
+	// PUT method is used and therefore this call can be used to update an existing resource.
+	log := logf.FromContext(ctx)
 	status := &elasticsearchv1alpha1.ILMPolicyStatus{
 		Description:  "",
 		Method:       http.MethodPut,
@@ -273,10 +273,8 @@ func (r *ILMPolicyReconciler) addExternalResources(ctx context.Context, httpClie
 
 	elasticsearchILMPolicyEndpoint := fmt.Sprintf("https://%s:9200/_ilm/policy", client.ElasticsearchEndpoint)
 	log.Info(fmt.Sprintf("Elasticsearch ILM Policy endpoint: %s", elasticsearchILMPolicyEndpoint))
-	log.Info(fmt.Sprintf("Authorization Header: %s", client.AuthorizationHeader))
 
 	// Create/update the ILM Policy. It's always a PUT request. No need to distinguish between adding a new ILM policy or updating an existing one.
-	log.Info("Creating/Updating the ILM policy")
 	policyBody := policy.Spec.Body
 
 	// check JSON for http methods https://riptutorial.com/go/example/27703/put-request-of-json-object
@@ -293,22 +291,17 @@ func (r *ILMPolicyReconciler) addExternalResources(ctx context.Context, httpClie
 	policyRequest.Header.Add("Authorization", fmt.Sprintf("Basic %s", client.AuthorizationHeader))
 
 	resp, err := httpClient.Do(policyRequest)
-	log.Info(fmt.Sprintf("Policy creation response: %#v", resp))
 	if err != nil {
+		err := fmt.Errorf("Error while sending the HTTP creation/update request: %w", err)
 		status.Description = err.Error()
-		log.Error(err, "Error while sending the HTTP request to create/update the policy")
-
 		return status, err
 	}
-
 	status.ResponseCode = resp.StatusCode
 	status.Description = resp.Status
 
 	if resp.StatusCode < 200 && resp.StatusCode >= 300 {
-		err := errors.New(fmt.Sprintf("Non-200 return code: %s", resp.Status))
+		err := errors.New(fmt.Sprintf("Non-200 response code: %s", resp.Status))
 		status.Description = err.Error()
-		log.Error(err, "Unexpected return code.")
-
 		return status, err
 	}
 
@@ -319,20 +312,17 @@ func (r *ILMPolicyReconciler) deleteExternalResources(ctx context.Context, httpC
 	// Delete any external resources associated with the ILM Policy
 	// Ensure that delete implementation is idempotent and safe to invoke
 	// multiple times for same object.
-	log := log.FromContext(ctx)
 	status := &elasticsearchv1alpha1.ILMPolicyStatus{
 		Description:  "",
 		Method:       http.MethodDelete,
 		ResponseCode: -1, // response code -1 means that the request failed
 	}
 
-	log.Info(fmt.Sprintf("Deleting external resources %#v", policy))
-
 	elasticsearchILMPolicyEndpoint := fmt.Sprintf("https://%s:9200/_ilm/policy", client.ElasticsearchEndpoint)
 
 	deleteRequest, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/%s", elasticsearchILMPolicyEndpoint, policy.Name), nil)
 	if err != nil {
-		log.Error(err, "Error while creating the ILM policy HTTP deletion request")
+		err := fmt.Errorf("Error while creating the ILM policy HTTP deletion request: %w", err)
 		status.Description = err.Error()
 		return status, err
 	}
@@ -341,18 +331,18 @@ func (r *ILMPolicyReconciler) deleteExternalResources(ctx context.Context, httpC
 
 	deleteResponse, err := httpClient.Do(deleteRequest)
 	if err != nil {
-		log.Error(err, "Error while sending the ILM policy HTTP deletion request")
+		err := fmt.Errorf("Error while sending an HTTP deletion request: %w", err)
 		status.Description = err.Error()
 		return status, err
 	}
-	log.Info(fmt.Sprintf("delete response: %#v", deleteResponse))
 	status.ResponseCode = deleteResponse.StatusCode
 	status.Description = deleteResponse.Status
 
 	if deleteResponse.StatusCode < 200 && deleteResponse.StatusCode >= 300 {
-		err := errors.New(fmt.Sprintf("Non-200 return code: %s", deleteResponse.Status))
+		err := errors.New(fmt.Sprintf("Non-200 response code: %s", deleteResponse.Status))
 		status.Description = err.Error()
-		log.Error(err, "Unexpected return code.")
+
+		return nil, err
 	}
 
 	return status, nil

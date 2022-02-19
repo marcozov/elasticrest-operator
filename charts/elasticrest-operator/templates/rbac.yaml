@@ -1,0 +1,108 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ template "operator.name" . }}
+  namespace: {{ .Release.Namespace }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ template "operator.name" . }}-manager-role
+rules:
+- apiGroups:
+  - elasticsearch.elasticrest.io
+  resources:
+  - ilmpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - elasticsearch.elasticrest.io
+  resources:
+  - ilmpolicies/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - elasticsearch.elasticrest.io
+  resources:
+  - ilmpolicies/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - elasticsearch.elasticrest.io
+  resources:
+  - indextemplates
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - elasticsearch.elasticrest.io
+  resources:
+  - indextemplates/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - elasticsearch.elasticrest.io
+  resources:
+  - indextemplates/status
+  verbs:
+  - get
+  - patch
+  - update
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ template "operator.name" . }}-secret-lister-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - list
+  - watch
+  - get
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ template "operator.name" . }}-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ template "operator.name" . }}-manager-role
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.operator.serviceAccount }}
+  namespace: {{ .Release.Namespace }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ template "operator.name" . }}-secret-lister-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ template "operator.name" . }}-secret-lister-role
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.operator.serviceAccount }}
+  namespace: {{ .Release.Namespace }}

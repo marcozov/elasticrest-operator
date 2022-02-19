@@ -8,10 +8,11 @@ Unlike other approaches (e.g., scripts that deploy the desired resources on an E
 
 # Getting started
 ## Install with Helm
-WIP
+It is available under `charts`. Instructions will follow.
 
 ## Deploy Elasticsearch resources
-Make sure that there is an Elasticsearch cluster deployed within your Kubernetes cluster.
+Make sure that there is an Elasticsearch cluster deployed within your Kubernetes cluster. For now, compatibility is guaranteed only for clusters
+deployed with the ECK operator. Check https://www.elastic.co/guide/en/cloud-on-k8s/current/index.html for more information.
 
 At the moment, Elasticsearch clusters deployed without ECK and/or outside of the Kubernetes cluster where the operator runs are not supported.
 ### Add an ILM Policy

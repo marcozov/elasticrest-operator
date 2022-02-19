@@ -1,0 +1,84 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ template "operator.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ template "operator.name" . }}
+    app.kubernetes.io/name: {{ template "operator.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: "controller"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ template "operator.name" . }}
+      app.kubernetes.io/name: {{ template "operator.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: "controller"
+  template:
+    metadata:
+      labels:
+        app: {{ template "operator.name" . }}
+        app.kubernetes.io/name: {{ template "operator.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: "controller"
+{{- if .Values.podLabels }}
+{{ toYaml .Values.podLabels | indent 8 }}
+{{- end }}
+{{- if .Values.podAnnotations }}
+      annotations:
+{{ toYaml .Values.podAnnotations | indent 8 }}
+{{- end }}
+    spec:
+      containers:
+        - name: manager
+          args:
+          - --leader-elect
+          command:
+          - /manager
+          image: {{ .Values.image.repository }}:{{ .Values.image.release }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8443
+              name: operator-api
+{{- if .Values.volumeMounts }}
+          volumeMounts:
+{{ toYaml .Values.volumes | indent 12 }}
+{{- end }}
+          env:
+            - name: PORT
+              value: "8443"
+            {{- if .Values.operator.debug }}
+            - name: DEBUG
+              value: "{{ .Values.operator.debug }}"
+            {{- end }}
+          resources:
+{{ toYaml .Values.resources | indent 12}}
+          securityContext:
+            allowPrivilegeEscalation: false
+      securityContext:
+        runAsNonRoot: true
+      serviceAccountName: {{ .Values.operator.serviceAccount }}
+{{- if .Values.volumes }}
+      volumes:
+{{ toYaml .Values.volumes | indent 8 }}
+{{- end }}
+{{- if .Values.image.pullSecrets }}
+      imagePullSecrets:
+{{ toYaml .Values.image.pullSecrets | indent 8 }}
+{{- end }}
+
+---
+# policy/v1 is not supported in k8s 1.20.7, but only from 1.21.x
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ template "operator.name" . }}-pdb
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ template "operator.name" . }}
+  maxUnavailable: 1

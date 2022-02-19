@@ -1,0 +1,39 @@
+---
+podAnnotations:
+  sidecar.istio.io/inject: "false"
+
+# parameters for the deployment of the webhook itself
+image:
+  pullSecrets: []
+  pullPolicy: Always
+  repository: "marcozoveralli/elasticrest-operator"
+  release: "0.0.1"
+
+operator:
+  registry: artifacts.open.ch/public-docker-virtual
+  imagePullSecret: central-docker-local-registry
+  forceImagePullPolicy: "true"
+  excludeNamespaces: "kube-system,kube-public,calico-system,tigera-operator"
+  debug: "false"
+
+  # if docker.nexus.open.ch requires credentials, it won't work since the webhook overwrites the imagePullSecrets with a single entry
+  ignoredRegistries: "artifacts.open.ch/central-docker-dev-local,artifacts.open.ch/central-docker-prod-local,docker.nexus.open.ch"
+  tlsSecretsPath: "/run/secrets/tls"
+  tlsCertFile: "tls.crt"
+  tlsKeyFile: "tls.key"
+
+  # a server issuer is required
+  certificateIssuer: vault-lake-server-issuer
+
+  # the secret must exist in the namespace where the webhook is deployed
+  caSecretName: "lake-root-ca"
+
+  serviceAccount: elasticrest-operator-controller-manager
+
+  resources:
+    limits:
+      cpu: 200m
+      memory: 100Mi
+    requests:
+      cpu: 100m
+      memory: 20Mi
