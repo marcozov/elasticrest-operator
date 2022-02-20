@@ -6,6 +6,8 @@ The goal of this operator is to manage Elasticsearch resources in a declarative 
 The resources define via this operator take care of the entire lifeycle of the resources that are created on the target Elasticsearch backends, including the creation, update and deletion of such components.
 Unlike other approaches (e.g., scripts that deploy the desired resources on an Elasticsearch cluster), this operator doesn't require that user performs manual cleanups when resourcees have to be deleted.
 
+This approach synergizes well with tools like FluxCD or ArgoCD, whose goal is to deploy continuously resources defined in a git repository to a Kubernetes backend.
+
 # Getting started
 ## Install with Helm
 It is available under `charts`. Instructions will follow.
